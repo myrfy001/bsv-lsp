@@ -16,5 +16,9 @@ serde = { version = "1.0", features = ["derive"] }
 dashmap = "5.1.0"
 log = "0.4.14"
 im-rc = "15.0.0"
+lazy_static = "1.4.0"
+
+[dev-dependencies]
+ariadne = "0.2"
 
 

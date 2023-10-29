@@ -27,7 +27,6 @@ pub enum Token {
     IntLiteral(String),
     RealLiteral(String),
     Identifier(String),
-    IdentifierUpper(String),
     Keyword(&'static str),
     Op(&'static str),
     Punct(&'static str),
@@ -147,7 +146,7 @@ fn parser_identifier_or_keyword<'a>(
             if KEYWORDS_MAP.contains(&tok) {
                 Token::Keyword(KEYWORDS_MAP.get(&tok).unwrap())
             } else if first_letter_upper {
-                Token::IdentifierUpper(tok)
+                Token::Identifier(tok)
             } else {
                 Token::Identifier(tok)
             },
@@ -198,6 +197,7 @@ fn parser_punct<'a>() -> impl Parser<char, (Token, Span), Error = Simple<char>> 
         just(":"),
         just(","),
         just("."),
+        just(";"),
         just("["),
         just("]"),
         just("{"),
@@ -352,27 +352,33 @@ pub enum AstType {
     FuncType(AstTypePrimary, Vec<AstType>),
 }
 
-pub type Spanned<T> = (T, Span);
-
-// a function to match `typeIde` in the grammar. In the lang_ref book, it syas that
-// `typeIde` is a `Identifier`, which means it must have the first latter in uppercase. But
-// there are built-in types like `int` which has a lowercase at first letter.
-fn parser_match_type_ide() -> impl Parser<Token, String, Error = Simple<Token>> {
-    filter_map(|span, t| {
-        match t {
-            Token::Identifier(s) => {
-                if s == "int" {
-                    return Ok(s);
-                }
-            }
-            Token::IdentifierUpper(s) => return Ok(s),
-            _ => {}
-        }
-        return Err(Simple::custom(span, "error1"));
-    })
+#[derive(Debug)]
+pub struct AstTypeFormal {
+    is_numeric: bool,
+    type_ident: String,
 }
 
-fn parser_type() -> impl Parser<Token, Vec<Spanned<AST>>, Error = Simple<Token>> {
+pub type AstTypeFormals = Vec<AstTypeFormal>;
+
+#[derive(Debug)]
+pub struct AstTypeDefType {
+    type_ident: String,
+    type_formals: Option<AstTypeFormals>,
+}
+#[derive(Debug)]
+
+pub struct AstTypedefSynonym {
+    origin_type: AstType,
+    new_type_def: AstTypeDefType,
+}
+
+pub type Spanned<T> = (T, Span);
+
+fn parser_match_type_ide() -> impl Parser<Token, String, Error = Simple<Token>> {
+    select! {Token::Identifier(s) => s}
+}
+
+fn parser_type() -> impl Parser<Token, Spanned<AstType>, Error = Simple<Token>> {
     let mut type_primary = Recursive::<Token, AstTypePrimary, _>::declare();
     let mut type_ = Recursive::<Token, AstType, _>::declare();
 
@@ -445,11 +451,52 @@ fn parser_type() -> impl Parser<Token, Vec<Spanned<AST>>, Error = Simple<Token>>
     );
     let x = type_
         .clone()
-        .map_with_span(|t, span| (AST::AType(t), span))
-        .repeated()
-        .collect::<Vec<_>>()
+        .map_with_span(|t, span| (t, span))
         .recover_with(skip_then_retry_until([]));
     x
+}
+
+fn parser_typedef_synonym() -> impl Parser<Token, Spanned<AstTypedefSynonym>, Error = Simple<Token>>
+{
+    let type_ide = parser_match_type_ide();
+    let type_formal = just(Token::Keyword("numeric"))
+        .or_not()
+        .then_ignore(just(Token::Keyword("type")))
+        .then(type_ide)
+        .map(|(numeric, ident)| AstTypeFormal {
+            is_numeric: numeric.is_some(),
+            type_ident: ident,
+        });
+
+    let type_ide = parser_match_type_ide();
+    let type_formals = just(Token::Punct("#")).ignore_then(
+        type_formal
+            .separated_by(just(Token::Punct(",")))
+            .delimited_by(just(Token::Punct("(")), just(Token::Punct(")"))),
+    );
+
+    let type_def_type = type_ide
+        .then(type_formals.or_not())
+        .map(|(type_ident, type_formals)| AstTypeDefType {
+            type_ident,
+            type_formals,
+        });
+    let type_ = parser_type();
+    let typedef_synonym = just(Token::Keyword("typedef"))
+        .ignore_then(type_)
+        .then(type_def_type)
+        .then_ignore(just(Token::Punct(";")));
+    typedef_synonym
+        .map_with_span(|((origin_type, _), new_type_def), span| {
+            (
+                AstTypedefSynonym {
+                    origin_type,
+                    new_type_def,
+                },
+                span,
+            )
+        })
+        .recover_with(skip_then_retry_until([]))
 }
 
 #[test]
@@ -463,8 +510,10 @@ fn main() {
     println!("{:?}", tokens);
     println!("{:?}", parse_errs);
     let len = src.chars().count();
-    let (ast, parse_errs) =
-        parser_type().parse_recovery(Stream::from_iter(len..len + 1, tokens.into_iter()));
+    let (ast, parse_errs) = parser_typedef_synonym()
+        .repeated()
+        .collect::<Vec<_>>()
+        .parse_recovery(Stream::from_iter(len..len + 1, tokens.into_iter()));
     println!("{:#?}", ast);
     println!("{:#?}", parse_errs);
 }

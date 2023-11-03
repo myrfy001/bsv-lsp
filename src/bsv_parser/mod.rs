@@ -333,118 +333,141 @@ fn parser_parse_stream_to_token_list() -> impl Parser<char, Vec<(Token, Span)>, 
 pub enum AST {
     AType(AstType),
 }
+
 #[derive(Debug)]
-pub struct AstTypePrimary {
-    ident: Option<AstIdent>,
-    types: Vec<AstType>,
-    type_nat_1: Option<String>,
-    type_nat_2: Option<String>,
+pub struct AstTypeNat {
+    nat: String,
+}
+
+#[derive(Debug)]
+pub struct AstTypeIde {
+    ident: String,
+}
+
+#[derive(Debug)]
+pub struct AstTypeClassIde {
+    ident: String,
+}
+
+#[derive(Debug)]
+pub enum AstTypePrimary {
+    Type {
+        ident: Spanned<AstTypeIde>,
+        types: Option<Vec<Spanned<AstType>>>,
+    },
+    Nat {
+        nat: Spanned<AstTypeNat>,
+    },
+    Bit {
+        start_nat: Spanned<AstTypeNat>,
+        end_nat: Spanned<AstTypeNat>,
+    },
 }
 
 #[derive(Debug)]
 pub enum AstType {
-    Type(AstTypePrimary),
-    FuncType(AstTypePrimary, Vec<AstType>),
+    Type {
+        type_: Spanned<AstTypePrimary>,
+    },
+    FuncType {
+        ret_type: Spanned<AstTypePrimary>,
+        arg_types: Vec<Spanned<AstType>>,
+    },
 }
 
 #[derive(Debug)]
 pub struct AstTypeFormal {
     is_numeric: bool,
-    type_ident: AstIdent,
+    type_ident: Spanned<AstTypeIde>,
 }
 
 #[derive(Debug)]
-pub struct AstTypeFormals(Vec<AstTypeFormal>);
-
-impl From<Vec<AstTypeFormal>> for AstTypeFormals {
-    fn from(value: Vec<AstTypeFormal>) -> Self {
-        Self(value)
-    }
+pub struct AstTypeFormals {
+    formals: Vec<Spanned<AstTypeFormal>>,
 }
+
 #[derive(Debug)]
 pub struct AstTypeDefType {
-    type_ident: AstIdent,
-    type_formals: Option<AstTypeFormals>,
+    type_ident: Spanned<AstTypeIde>,
+    type_formals: Option<Spanned<AstTypeFormals>>,
 }
 
 #[derive(Debug)]
 pub struct AstTypedefSynonym {
-    origin_type: AstType,
-    new_type_def: AstTypeDefType,
+    origin_type: Spanned<AstType>,
+    new_type_def: Spanned<AstTypeDefType>,
 }
 
 #[derive(Debug)]
-pub struct AstIdent(String);
-
-impl From<String> for AstIdent {
-    fn from(value: String) -> Self {
-        Self(value)
-    }
+pub struct AstIdent {
+    ident: String,
 }
 
 #[derive(Debug)]
-pub struct AstIntLiteral(String);
-
-impl From<String> for AstIntLiteral {
-    fn from(value: String) -> Self {
-        Self(value)
-    }
+pub struct AstIntLiteral {
+    int_lit: String,
 }
 
 #[derive(Debug)]
-pub struct AstDerives(Vec<String>);
-
-impl From<Vec<String>> for AstDerives {
-    fn from(value: Vec<String>) -> Self {
-        Self(value)
-    }
+pub struct AstDerives {
+    derives: Vec<Spanned<AstTypeClassIde>>,
 }
 
 #[derive(Debug)]
-pub struct AstTypedefEnumElement {
-    ident: AstIdent,
-    value: Option<AstIntLiteral>,
-    tag_start: Option<AstIntLiteral>,
-    tag_end: Option<AstIntLiteral>,
+pub enum AstTypedefEnumElement {
+    NoTag {
+        ident: Spanned<AstIdent>,
+        value: Option<Spanned<AstIntLiteral>>,
+    },
+    OneTag {
+        ident: Spanned<AstIdent>,
+        value: Option<Spanned<AstIntLiteral>>,
+        tag: Spanned<AstIntLiteral>,
+    },
+    TwoTag {
+        ident: Spanned<AstIdent>,
+        value: Option<Spanned<AstIntLiteral>>,
+        tag_start: Spanned<AstIntLiteral>,
+        tag_end: Spanned<AstIntLiteral>,
+    },
 }
 
 #[derive(Debug)]
-pub struct AstTypedefEnumElements(Vec<AstTypedefEnumElement>);
-
-impl From<Vec<AstTypedefEnumElement>> for AstTypedefEnumElements {
-    fn from(value: Vec<AstTypedefEnumElement>) -> Self {
-        Self(value)
-    }
+pub struct AstTypedefEnumElements {
+    elements: Vec<Spanned<AstTypedefEnumElement>>,
 }
 
 #[derive(Debug)]
 pub struct AstTypedefEnum {
-    ident: AstIdent,
-    elements: AstTypedefEnumElements,
-    derives: Option<AstDerives>,
+    ident: Spanned<AstIdent>,
+    elements: Spanned<AstTypedefEnumElements>,
+    derives: Option<Spanned<AstDerives>>,
 }
 
 pub type Spanned<T> = (T, Span);
 
-fn parser_match_type_ide() -> impl Parser<Token, String, Error = Simple<Token>> {
-    select! {Token::Identifier(s) => s}
+fn parser_match_type_ide() -> impl Parser<Token, Spanned<AstTypeIde>, Error = Simple<Token>> {
+    select! {Token::Identifier(s) => s}.map_with_span(|ident, span| (AstTypeIde { ident }, span))
 }
 
-fn parser_match_typeclass_ide() -> impl Parser<Token, String, Error = Simple<Token>> {
+fn parser_match_typeclass_ide(
+) -> impl Parser<Token, Spanned<AstTypeClassIde>, Error = Simple<Token>> {
     select! {Token::Identifier(s) => s}
+        .map_with_span(|ident, span| (AstTypeClassIde { ident }, span))
 }
 
-fn parser_match_identifier() -> impl Parser<Token, String, Error = Simple<Token>> {
-    select! {Token::Identifier(s) => s}
+fn parser_match_identifier() -> impl Parser<Token, Spanned<AstIdent>, Error = Simple<Token>> {
+    select! {Token::Identifier(s) => s}.map_with_span(|ident, span| (AstIdent { ident }, span))
 }
 
-fn parser_match_int_literal() -> impl Parser<Token, String, Error = Simple<Token>> {
+fn parser_match_int_literal() -> impl Parser<Token, Spanned<AstIntLiteral>, Error = Simple<Token>> {
     select! {Token::IntLiteral(s) => s}
+        .map_with_span(|int_lit, span| (AstIntLiteral { int_lit }, span))
 }
 
 fn parser_type() -> impl Parser<Token, Spanned<AstType>, Error = Simple<Token>> {
-    let mut type_primary = Recursive::<Token, AstTypePrimary, _>::declare();
-    let mut type_ = Recursive::<Token, AstType, _>::declare();
+    let mut type_primary = Recursive::<Token, Spanned<AstTypePrimary>, _>::declare();
+    let mut type_ = Recursive::<Token, Spanned<AstType>, _>::declare();
 
     let type_nat = filter_map(|span, tok| {
         if let Token::IntLiteral(ref lit) = tok {
@@ -453,7 +476,8 @@ fn parser_type() -> impl Parser<Token, Spanned<AstType>, Error = Simple<Token>> 
             }
         }
         return Err(Simple::custom(span, "error1"));
-    });
+    })
+    .map_with_span(|nat, span| (AstTypeNat { nat }, span));
 
     let t1 = parser_match_type_ide()
         .then(
@@ -466,21 +490,11 @@ fn parser_type() -> impl Parser<Token, Spanned<AstType>, Error = Simple<Token>> 
                 )
                 .or_not(),
         )
-        .map(|(ident, types)| AstTypePrimary {
-            ident: Some(ident.into()),
-            types: types.unwrap_or_default(),
-            type_nat_1: None,
-            type_nat_2: None,
-        });
+        .map_with_span(|(ident, types), span| (AstTypePrimary::Type { ident, types }, span));
 
     let t2 = type_nat
         .clone()
-        .map(|type_nat_1| AstTypePrimary {
-            ident: None,
-            types: Vec::new(),
-            type_nat_1: Some(type_nat_1),
-            type_nat_2: None,
-        })
+        .map_with_span(|nat, span| (AstTypePrimary::Nat { nat }, span))
         .recover_with(skip_then_retry_until([]));
 
     let t3 = just(Token::Keyword("bit"))
@@ -490,68 +504,89 @@ fn parser_type() -> impl Parser<Token, Spanned<AstType>, Error = Simple<Token>> 
                 .then(type_nat)
                 .delimited_by(just(Token::Punct("[")), just(Token::Punct("]"))),
         )
-        .map(|(type_nat_1, type_nat_2)| AstTypePrimary {
-            ident: None,
-            types: Vec::new(),
-            type_nat_1: Some(type_nat_1),
-            type_nat_2: Some(type_nat_2),
+        .map_with_span(|(start_nat, end_nat), span| {
+            (AstTypePrimary::Bit { start_nat, end_nat }, span)
         })
         .recover_with(skip_then_retry_until([]));
 
     type_primary.define(t1.or(t2).or(t3));
 
-    type_.define(
-        type_primary
-            .clone()
-            .map(|t| AstType::Type(t))
-            .or(type_primary
-                .then(
-                    type_
-                        .clone()
-                        .separated_by(just(Token::Punct(",")))
-                        .delimited_by(just(Token::Punct("(")), just(Token::Punct(")"))),
-                )
-                .map(|(a, b)| AstType::FuncType(a, b))),
-    );
-    let x = type_
+    let tt1 = type_primary
         .clone()
-        .map_with_span(|t, span| (t, span))
-        .recover_with(skip_then_retry_until([]));
-    x
+        .map_with_span(|type_, span| (AstType::Type { type_ }, span));
+    let tt2 = type_primary
+        .then(
+            type_
+                .clone()
+                .separated_by(just(Token::Punct(",")))
+                .delimited_by(just(Token::Punct("(")), just(Token::Punct(")"))),
+        )
+        .map_with_span(|(ret_type, arg_types), span| {
+            (
+                AstType::FuncType {
+                    ret_type,
+                    arg_types,
+                },
+                span,
+            )
+        });
+
+    type_.define(tt1.or(tt2));
+    type_
 }
 
-fn parser_typedef_synonym() -> impl Parser<Token, Spanned<AstTypedefSynonym>, Error = Simple<Token>>
-{
+fn parser_typedef_type() -> impl Parser<Token, Spanned<AstTypeDefType>, Error = Simple<Token>> {
+    let type_ide = parser_match_type_ide();
+    let type_formals = parser_type_formals();
+    let type_def_type =
+        type_ide
+            .then(type_formals.or_not())
+            .map_with_span(|(type_ident, type_formals), span| {
+                (
+                    AstTypeDefType {
+                        type_ident,
+                        type_formals,
+                    },
+                    span,
+                )
+            });
+    type_def_type
+}
+
+fn parser_type_formals() -> impl Parser<Token, Spanned<AstTypeFormals>, Error = Simple<Token>> {
     let type_ide = parser_match_type_ide();
     let type_formal = just(Token::Keyword("numeric"))
         .or_not()
         .then_ignore(just(Token::Keyword("type")))
         .then(type_ide)
-        .map(|(numeric, ident)| AstTypeFormal {
-            is_numeric: numeric.is_some(),
-            type_ident: ident.into(),
+        .map_with_span(|(numeric, ident), span| {
+            (
+                AstTypeFormal {
+                    is_numeric: numeric.is_some(),
+                    type_ident: ident.into(),
+                },
+                span,
+            )
         });
+    let type_formals = just(Token::Punct("#"))
+        .ignore_then(
+            type_formal
+                .separated_by(just(Token::Punct(",")))
+                .delimited_by(just(Token::Punct("(")), just(Token::Punct(")"))),
+        )
+        .map_with_span(|formals, span| (AstTypeFormals { formals }, span));
+    type_formals
+}
 
-    let type_ide = parser_match_type_ide();
-    let type_formals = just(Token::Punct("#")).ignore_then(
-        type_formal
-            .separated_by(just(Token::Punct(",")))
-            .delimited_by(just(Token::Punct("(")), just(Token::Punct(")"))),
-    );
-
-    let type_def_type = type_ide
-        .then(type_formals.or_not())
-        .map(|(type_ident, type_formals)| AstTypeDefType {
-            type_ident: type_ident.into(),
-            type_formals: type_formals.map(|e| e.into()),
-        });
+fn parser_typedef_synonym() -> impl Parser<Token, Spanned<AstTypedefSynonym>, Error = Simple<Token>>
+{
+    let type_def_type = parser_typedef_type();
     let type_ = parser_type();
     let typedef_synonym = just(Token::Keyword("typedef"))
         .ignore_then(type_)
         .then(type_def_type)
-        .then_ignore(just(Token::Punct(";")));
-    typedef_synonym
-        .map_with_span(|((origin_type, _), new_type_def), span| {
+        .then_ignore(just(Token::Punct(";")))
+        .map_with_span(|(origin_type, new_type_def), span| {
             (
                 AstTypedefSynonym {
                     origin_type,
@@ -560,7 +595,8 @@ fn parser_typedef_synonym() -> impl Parser<Token, Spanned<AstTypedefSynonym>, Er
                 span,
             )
         })
-        .recover_with(skip_then_retry_until([]))
+        .recover_with(skip_then_retry_until([]));
+    typedef_synonym
 }
 
 fn parser_derives() -> impl Parser<Token, Spanned<AstDerives>, Error = Simple<Token>> {
@@ -571,7 +607,7 @@ fn parser_derives() -> impl Parser<Token, Spanned<AstDerives>, Error = Simple<To
                 .separated_by(just(Token::Punct(",")))
                 .delimited_by(just(Token::Punct("(")), just(Token::Punct(")"))),
         )
-        .map_with_span(|v, span| (v.into(), span))
+        .map_with_span(|derives, span| (AstDerives { derives }, span))
         .recover_with(skip_then_retry_until([]))
 }
 
@@ -582,11 +618,8 @@ fn parser_typedef_enum() -> impl Parser<Token, Spanned<AstTypedefEnum>, Error = 
         .boxed();
     let t1 = parser_match_identifier()
         .then(optional_int_literal.clone())
-        .map(|(ident, int_lit)| AstTypedefEnumElement {
-            ident: ident.into(),
-            value: int_lit.map(|s| s.into()),
-            tag_start: None,
-            tag_end: None,
+        .map_with_span(|(ident, value), span| {
+            (AstTypedefEnumElement::NoTag { ident, value }, span)
         });
 
     let t2 = parser_match_identifier()
@@ -595,11 +628,8 @@ fn parser_typedef_enum() -> impl Parser<Token, Spanned<AstTypedefEnum>, Error = 
                 .delimited_by(just(Token::Punct("[")), just(Token::Punct("]"))),
         )
         .then(optional_int_literal.clone())
-        .map(|((ident, tag_start), int_lit)| AstTypedefEnumElement {
-            ident: ident.into(),
-            value: int_lit.map(|s| s.into()),
-            tag_start: Some(tag_start.into()),
-            tag_end: None,
+        .map_with_span(|((ident, tag), value), span| {
+            (AstTypedefEnumElement::OneTag { ident, value, tag }, span)
         });
 
     let t3 = parser_match_identifier()
@@ -610,18 +640,23 @@ fn parser_typedef_enum() -> impl Parser<Token, Spanned<AstTypedefEnum>, Error = 
                 .delimited_by(just(Token::Punct("[")), just(Token::Punct("]"))),
         )
         .then(optional_int_literal.clone())
-        .map(
-            |((ident, (tag_start, tag_end)), int_lit)| AstTypedefEnumElement {
-                ident: ident.into(),
-                value: int_lit.map(|s| s.into()),
-                tag_start: Some(tag_start.into()),
-                tag_end: Some(tag_end.into()),
-            },
-        );
+        .map_with_span(|((ident, (tag_start, tag_end)), value), span| {
+            (
+                AstTypedefEnumElement::TwoTag {
+                    ident,
+                    value,
+                    tag_start,
+                    tag_end,
+                },
+                span,
+            )
+        });
 
     let typedef_enum_element = t3.or(t2).or(t1);
 
-    let typedef_enum_elements = typedef_enum_element.separated_by(just(Token::Punct(",")));
+    let typedef_enum_elements = typedef_enum_element
+        .separated_by(just(Token::Punct(",")))
+        .map_with_span(|elements, span| (AstTypedefEnumElements { elements }, span));
 
     let typedef_enum = just(Token::Keyword("typedef"))
         .ignore_then(just(Token::Keyword("enum")))
@@ -634,9 +669,9 @@ fn parser_typedef_enum() -> impl Parser<Token, Spanned<AstTypedefEnum>, Error = 
         .map_with_span(|((elements, ident), derives), span| {
             (
                 AstTypedefEnum {
-                    ident: ident.into(),
-                    elements: AstTypedefEnumElements(elements),
-                    derives: derives.map(|e| e.0),
+                    ident,
+                    elements,
+                    derives,
                 },
                 span,
             )
@@ -644,6 +679,255 @@ fn parser_typedef_enum() -> impl Parser<Token, Spanned<AstTypedefEnum>, Error = 
         .recover_with(skip_then_retry_until([]));
 
     typedef_enum
+}
+
+#[derive(Debug)]
+pub enum AstUnionMember {
+    Type {
+        ident: Spanned<AstIdent>,
+        typ: Spanned<AstType>,
+    },
+    SubStruct {
+        ident: Spanned<AstIdent>,
+        struct_: Spanned<AstSubStruct>,
+    },
+    SubUnion {
+        ident: Spanned<AstIdent>,
+        union_: Spanned<AstSubUnion>,
+    },
+    Void {
+        ident: Spanned<AstIdent>,
+    },
+}
+
+#[derive(Debug)]
+pub enum AstStructMember {
+    Type {
+        ident: Spanned<AstIdent>,
+        typ: Spanned<AstType>,
+    },
+    SubUnion {
+        ident: Spanned<AstIdent>,
+        union_: Spanned<AstSubUnion>,
+    },
+}
+
+#[derive(Debug)]
+pub struct AstSubStruct {
+    members: Vec<Spanned<AstStructMember>>,
+}
+
+#[derive(Debug)]
+pub struct AstSubUnion {
+    members: Vec<Spanned<AstUnionMember>>,
+}
+
+#[derive(Debug)]
+pub struct AstTypedefTaggedUnion {
+    members: Vec<Spanned<AstUnionMember>>,
+    typedef_type: Spanned<AstTypeDefType>,
+    derives: Option<Spanned<AstDerives>>,
+}
+
+#[derive(Debug)]
+pub struct AstTypedefStruct {
+    members: Vec<Spanned<AstStructMember>>,
+    typedef_type: Spanned<AstTypeDefType>,
+    derives: Option<Spanned<AstDerives>>,
+}
+#[derive(Debug)]
+pub enum AstTypedef {
+    Synonym {
+        synonym: Spanned<AstTypedefSynonym>,
+    },
+    Enum {
+        enum_: Spanned<AstTypedefEnum>,
+    },
+    Struct {
+        struct_: Spanned<AstTypedefStruct>,
+    },
+    TaggedUnion {
+        union_: Spanned<AstTypedefTaggedUnion>,
+    },
+}
+
+fn parser_sub_struct<'a>(
+    sub_struct: Recursive<'a, Token, Spanned<AstSubStruct>, Simple<Token>>,
+    sub_union: Recursive<'a, Token, Spanned<AstSubUnion>, Simple<Token>>,
+    struct_member: Recursive<'a, Token, Spanned<AstStructMember>, Simple<Token>>,
+    union_member: Recursive<'a, Token, Spanned<AstUnionMember>, Simple<Token>>,
+) -> impl Parser<Token, Spanned<AstSubStruct>, Error = Simple<Token>> + 'a {
+    just(Token::Keyword("struct"))
+        .ignore_then(
+            struct_member
+                .repeated()
+                .delimited_by(just(Token::Punct("{")), just(Token::Punct("}"))),
+        )
+        .map_with_span(|members, span| (AstSubStruct { members }, span))
+}
+
+fn parser_sub_union<'a>(
+    sub_struct: Recursive<'a, Token, Spanned<AstSubStruct>, Simple<Token>>,
+    sub_union: Recursive<'a, Token, Spanned<AstSubUnion>, Simple<Token>>,
+    struct_member: Recursive<'a, Token, Spanned<AstStructMember>, Simple<Token>>,
+    union_member: Recursive<'a, Token, Spanned<AstUnionMember>, Simple<Token>>,
+) -> impl Parser<Token, Spanned<AstSubUnion>, Error = Simple<Token>> + 'a {
+    just(Token::Keyword("union"))
+        .ignore_then(just(Token::Keyword("tagged")))
+        .ignore_then(
+            union_member
+                .repeated()
+                .delimited_by(just(Token::Punct("{")), just(Token::Punct("}"))),
+        )
+        .map_with_span(|members, span| (AstSubUnion { members }, span))
+}
+
+fn parser_union_member<'a>(
+    sub_struct: Recursive<'a, Token, Spanned<AstSubStruct>, Simple<Token>>,
+    sub_union: Recursive<'a, Token, Spanned<AstSubUnion>, Simple<Token>>,
+    struct_member: Recursive<'a, Token, Spanned<AstStructMember>, Simple<Token>>,
+    union_member: Recursive<'a, Token, Spanned<AstUnionMember>, Simple<Token>>,
+) -> impl Parser<Token, Spanned<AstUnionMember>, Error = Simple<Token>> + 'a {
+    let t1 = parser_type()
+        .then(parser_match_identifier())
+        .then_ignore(just(Token::Punct(";")))
+        .map_with_span(|(typ, ident), span| (AstUnionMember::Type { ident, typ }, span));
+    let t2 = sub_struct
+        .then(parser_match_identifier())
+        .then_ignore(just(Token::Punct(";")))
+        .map_with_span(|(struct_, ident), span| {
+            (AstUnionMember::SubStruct { ident, struct_ }, span)
+        });
+    let t3 = sub_union
+        .then(parser_match_identifier())
+        .then_ignore(just(Token::Punct(";")))
+        .map_with_span(|(union_, ident), span| (AstUnionMember::SubUnion { ident, union_ }, span));
+    let t4 = just(Token::Keyword("void"))
+        .ignore_then(parser_match_identifier())
+        .then_ignore(just(Token::Punct(";")))
+        .map_with_span(|ident, span| (AstUnionMember::Void { ident }, span));
+
+    t1.or(t2.or(t3.or(t4)))
+}
+
+fn parser_struct_member<'a>(
+    sub_struct: Recursive<'a, Token, Spanned<AstSubStruct>, Simple<Token>>,
+    sub_union: Recursive<'a, Token, Spanned<AstSubUnion>, Simple<Token>>,
+    struct_member: Recursive<'a, Token, Spanned<AstStructMember>, Simple<Token>>,
+    union_member: Recursive<'a, Token, Spanned<AstUnionMember>, Simple<Token>>,
+) -> impl Parser<Token, Spanned<AstStructMember>, Error = Simple<Token>> + 'a {
+    let t1 = parser_type()
+        .then(parser_match_identifier())
+        .then_ignore(just(Token::Punct(";")))
+        .map_with_span(|(typ, ident), span| (AstStructMember::Type { ident, typ }, span));
+    let t2 = sub_union
+        .then(parser_match_identifier())
+        .then_ignore(just(Token::Punct(";")))
+        .map_with_span(|(union_, ident), span| (AstStructMember::SubUnion { ident, union_ }, span));
+
+    t1.or(t2)
+}
+
+fn generate_recursive_struct_and_union_parser() -> (
+    impl Parser<Token, Spanned<AstUnionMember>, Error = Simple<Token>>,
+    impl Parser<Token, Spanned<AstStructMember>, Error = Simple<Token>>,
+) {
+    let mut sub_struct = Recursive::<Token, Spanned<AstSubStruct>, Simple<Token>>::declare();
+    let mut sub_union = Recursive::<Token, Spanned<AstSubUnion>, Simple<Token>>::declare();
+    let mut struct_member = Recursive::<Token, Spanned<AstStructMember>, Simple<Token>>::declare();
+    let mut union_member = Recursive::<Token, Spanned<AstUnionMember>, Simple<Token>>::declare();
+
+    union_member.define(parser_union_member(
+        sub_struct.clone(),
+        sub_union.clone(),
+        struct_member.clone(),
+        union_member.clone(),
+    ));
+
+    struct_member.define(parser_struct_member(
+        sub_struct.clone(),
+        sub_union.clone(),
+        struct_member.clone(),
+        union_member.clone(),
+    ));
+
+    sub_struct.define(parser_sub_struct(
+        sub_struct.clone(),
+        sub_union.clone(),
+        struct_member.clone(),
+        union_member.clone(),
+    ));
+
+    sub_union.define(parser_sub_union(
+        sub_struct.clone(),
+        sub_union.clone(),
+        struct_member.clone(),
+        union_member.clone(),
+    ));
+
+    (union_member, struct_member)
+}
+
+fn parser_typedef_tagged_union(
+) -> impl Parser<Token, Spanned<AstTypedefTaggedUnion>, Error = Simple<Token>> {
+    let (union_member, _) = generate_recursive_struct_and_union_parser();
+    just(Token::Keyword("typedef"))
+        .ignore_then(just(Token::Keyword("union")))
+        .ignore_then(just(Token::Keyword("tagged")))
+        .ignore_then(
+            union_member
+                .repeated()
+                .delimited_by(just(Token::Punct("{")), just(Token::Punct("}"))),
+        )
+        .then(parser_typedef_type())
+        .then(parser_derives().or_not())
+        .then_ignore(just(Token::Punct(";")))
+        .map_with_span(|((members, typedef_type), derives), span| {
+            (
+                AstTypedefTaggedUnion {
+                    members,
+                    typedef_type,
+                    derives,
+                },
+                span,
+            )
+        })
+}
+
+fn parser_typedef_struct() -> impl Parser<Token, Spanned<AstTypedefStruct>, Error = Simple<Token>> {
+    let (_, struct_member) = generate_recursive_struct_and_union_parser();
+    just(Token::Keyword("typedef"))
+        .ignore_then(just(Token::Keyword("struct")))
+        .ignore_then(
+            struct_member
+                .repeated()
+                .delimited_by(just(Token::Punct("{")), just(Token::Punct("}"))),
+        )
+        .then(parser_typedef_type())
+        .then(parser_derives().or_not())
+        .then_ignore(just(Token::Punct(";")))
+        .map_with_span(|((members, typedef_type), derives), span| {
+            (
+                AstTypedefStruct {
+                    members,
+                    typedef_type,
+                    derives,
+                },
+                span,
+            )
+        })
+}
+
+fn parser_typedef() -> impl Parser<Token, Spanned<AstTypedef>, Error = Simple<Token>> {
+    let t1 = parser_typedef_synonym()
+        .map_with_span(|synonym, span| (AstTypedef::Synonym { synonym }, span));
+    let t2 = parser_typedef_enum().map_with_span(|enum_, span| (AstTypedef::Enum { enum_ }, span));
+    let t3 = parser_typedef_struct()
+        .map_with_span(|struct_, span| (AstTypedef::Struct { struct_ }, span));
+    let t4 = parser_typedef_tagged_union().map_with_span(|union_, span: std::ops::Range<usize>| {
+        (AstTypedef::TaggedUnion { union_ }, span)
+    });
+    t1.or(t2.or(t3).or(t4))
 }
 
 #[test]
@@ -657,7 +941,7 @@ fn main() {
     println!("{:?}", tokens);
     println!("{:?}", parse_errs);
     let len = src.chars().count();
-    let (ast, parse_errs) = parser_typedef_enum()
+    let (ast, parse_errs) = parser_typedef()
         .repeated()
         .collect::<Vec<_>>()
         .parse_recovery_verbose(Stream::from_iter(len..len + 1, tokens.into_iter()));

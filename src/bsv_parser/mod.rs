@@ -318,8 +318,7 @@ fn parser_parse_stream_to_token_list() -> impl Parser<char, Vec<(Token, Span)>, 
         .or(parser_identifier_or_keyword())
         .or(parser_op())
         .or(parser_punct())
-        .padded()
-        .recover_with(skip_then_retry_until([]));
+        .padded();
 
     let ret = token
         // If we encounter an error, skip and attempt to lex the next character as a token instead
@@ -494,8 +493,7 @@ fn parser_type() -> impl Parser<Token, Spanned<AstType>, Error = Simple<Token>> 
 
     let t2 = type_nat
         .clone()
-        .map_with_span(|nat, span| (AstTypePrimary::Nat { nat }, span))
-        .recover_with(skip_then_retry_until([]));
+        .map_with_span(|nat, span| (AstTypePrimary::Nat { nat }, span));
 
     let t3 = just(Token::Keyword("bit"))
         .ignore_then(
@@ -506,8 +504,7 @@ fn parser_type() -> impl Parser<Token, Spanned<AstType>, Error = Simple<Token>> 
         )
         .map_with_span(|(start_nat, end_nat), span| {
             (AstTypePrimary::Bit { start_nat, end_nat }, span)
-        })
-        .recover_with(skip_then_retry_until([]));
+        });
 
     type_primary.define(t1.or(t2).or(t3));
 
@@ -594,8 +591,7 @@ fn parser_typedef_synonym() -> impl Parser<Token, Spanned<AstTypedefSynonym>, Er
                 },
                 span,
             )
-        })
-        .recover_with(skip_then_retry_until([]));
+        });
     typedef_synonym
 }
 
@@ -608,7 +604,6 @@ fn parser_derives() -> impl Parser<Token, Spanned<AstDerives>, Error = Simple<To
                 .delimited_by(just(Token::Punct("(")), just(Token::Punct(")"))),
         )
         .map_with_span(|derives, span| (AstDerives { derives }, span))
-        .recover_with(skip_then_retry_until([]))
 }
 
 fn parser_typedef_enum() -> impl Parser<Token, Spanned<AstTypedefEnum>, Error = Simple<Token>> {
@@ -675,8 +670,7 @@ fn parser_typedef_enum() -> impl Parser<Token, Spanned<AstTypedefEnum>, Error = 
                 },
                 span,
             )
-        })
-        .recover_with(skip_then_retry_until([]));
+        });
 
     typedef_enum
 }

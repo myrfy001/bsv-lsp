@@ -26,6 +26,7 @@ pub struct ImCompleteSemanticToken {
 pub enum Token {
     IntLiteral(String),
     RealLiteral(String),
+    StringLiteral(String),
     Identifier(String),
     Keyword(&'static str),
     Op(&'static str),
@@ -311,11 +312,52 @@ fn parser_real_literal() -> impl Parser<char, (Token, Span), Error = Simple<char
         .map_with_span(|tok, span| (Token::RealLiteral(tok), span))
 }
 
+fn parser_string_literal() -> impl Parser<char, (Token, Span), Error = Simple<char>> {
+    let escape = just('\\')
+        .ignore_then(choice((
+            just('n').to('\n'),
+            just('t').to('\t'),
+            just('\\'),
+            just('"'),
+            just('v').to('\x0B'),
+            just('f').to('\x0C'),
+            just('a').to('\x07'),
+            just('x').ignore_then(
+                filter(move |c: &char| c.is_digit(16))
+                    .repeated()
+                    .exactly(2)
+                    .map(|a| {
+                        char::from_u32(
+                            u32::from_str_radix(&(a.iter().collect::<String>()), 8).unwrap(),
+                        )
+                        .unwrap()
+                    }),
+            ),
+            filter(move |c: &char| c.is_digit(8))
+                .repeated()
+                .exactly(3)
+                .map(|a| {
+                    char::from_u32(u32::from_str_radix(&(a.iter().collect::<String>()), 8).unwrap())
+                        .unwrap()
+                }),
+        )))
+        .boxed();
+
+    let string = none_of("\\\"")
+        .or(escape)
+        .repeated()
+        .delimited_by(just('"'), just('"'))
+        .map_with_span(|s, span| (Token::StringLiteral(s.iter().collect()), span))
+        .boxed();
+    string
+}
+
 fn parser_parse_stream_to_token_list() -> impl Parser<char, Vec<(Token, Span)>, Error = Simple<char>>
 {
     let token = parser_int_literal()
         .or(parser_real_literal())
         .or(parser_identifier_or_keyword())
+        .or(parser_string_literal())
         .or(parser_op())
         .or(parser_punct())
         .padded();

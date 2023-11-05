@@ -31,6 +31,7 @@ pub enum Token {
     Keyword(&'static str),
     Op(&'static str),
     Punct(&'static str),
+    Comment(String),
 }
 
 impl Token {
@@ -352,12 +353,32 @@ fn parser_string_literal() -> impl Parser<char, (Token, Span), Error = Simple<ch
     string
 }
 
+fn parser_comment() -> impl Parser<char, (Token, Span), Error = Simple<char>> {
+    let t1 = just("//")
+        .ignore_then(take_until(just('\n').ignored()))
+        .padded()
+        .map_with_span(|(c, _), span| {
+            let s = c.iter().collect();
+            (Token::Comment(s), span)
+        });
+
+    let t2 = just("/*")
+        .ignore_then(take_until(just("*/").ignored()))
+        .padded()
+        .map_with_span(|(c, _), span| {
+            let s = c.iter().collect();
+            (Token::Comment(s), span)
+        });
+    t1.or(t2)
+}
+
 fn parser_parse_stream_to_token_list() -> impl Parser<char, Vec<(Token, Span)>, Error = Simple<char>>
 {
     let token = parser_int_literal()
         .or(parser_real_literal())
         .or(parser_identifier_or_keyword())
         .or(parser_string_literal())
+        .or(parser_comment())
         .or(parser_op())
         .or(parser_punct())
         .padded();

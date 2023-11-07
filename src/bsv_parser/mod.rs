@@ -1067,6 +1067,119 @@ fn parser_attribute_instances(
         .map_with_span(|insts, span| (AstAttributeInstances { insts }, span))
 }
 
+#[derive(Debug)]
+pub struct AstMethodProtoFormal {
+    attrs: Option<Spanned<AstAttributeInstances>>,
+    typ_: Spanned<AstType>,
+    ident: Spanned<AstIdent>,
+}
+
+#[derive(Debug)]
+pub struct AstMethodProtoFormals {
+    formals: Vec<Spanned<AstMethodProtoFormal>>,
+}
+
+#[derive(Debug)]
+pub struct AstMethodProto {
+    attrs: Option<Spanned<AstAttributeInstances>>,
+    typ_: Spanned<AstType>,
+    ident: Spanned<AstIdent>,
+    formals: Option<Spanned<AstMethodProtoFormals>>,
+}
+
+#[derive(Debug)]
+pub struct AstSubinterfaceDecl {
+    attrs: Option<Spanned<AstAttributeInstances>>,
+    typedef: Spanned<AstTypeDefType>,
+}
+
+#[derive(Debug)]
+pub enum AstInterfaceMemberDecl {
+    Method(Spanned<AstMethodProto>),
+    SubInterface(Spanned<AstSubinterfaceDecl>),
+}
+
+#[derive(Debug)]
+pub struct AstInterfaceDecl {
+    attrs: Option<Spanned<AstAttributeInstances>>,
+    typedef: Spanned<AstTypeDefType>,
+    members: Vec<Spanned<AstInterfaceMemberDecl>>,
+    type_ident: Option<Spanned<AstTypeIde>>,
+}
+
+fn parser_interface_decl() -> impl Parser<Token, Spanned<AstInterfaceDecl>, Error = Simple<Token>> {
+    let method_proto_formal = parser_attribute_instances()
+        .or_not()
+        .then(parser_type())
+        .then(parser_match_identifier())
+        .map_with_span(|((attrs, typ_), ident), span| {
+            (AstMethodProtoFormal { attrs, typ_, ident }, span)
+        });
+    let method_proto_formals = method_proto_formal
+        .separated_by(just(Token::Punct(",")))
+        .map_with_span(|formals, span| (AstMethodProtoFormals { formals }, span));
+    let method_proto = parser_attribute_instances()
+        .or_not()
+        .then_ignore(just(Token::Keyword("method")))
+        .then(parser_type())
+        .then(parser_match_identifier())
+        .then(
+            method_proto_formals
+                .or_not()
+                .delimited_by(just(Token::Punct("(")), just(Token::Punct(")"))),
+        )
+        .then_ignore(just(Token::Punct(";")))
+        .map_with_span(|(((attrs, typ_), ident), formals), span| {
+            AstInterfaceMemberDecl::Method((
+                AstMethodProto {
+                    attrs,
+                    typ_,
+                    ident,
+                    formals,
+                },
+                span,
+            ))
+        });
+    let subinterface_decl = parser_attribute_instances()
+        .or_not()
+        .then_ignore(just(Token::Keyword("interface")))
+        .then(parser_typedef_type())
+        .then_ignore(just(Token::Punct(";")))
+        .map_with_span(|(attrs, typedef), span| {
+            AstInterfaceMemberDecl::SubInterface((AstSubinterfaceDecl { attrs, typedef }, span))
+        });
+    let interface_member_decl = method_proto
+        .or(subinterface_decl)
+        .map_with_span(|i, span| (i, span));
+    parser_attribute_instances()
+        .or_not()
+        .then(
+            parser_typedef_type()
+                .then_ignore(just(Token::Punct(";")))
+                .then(interface_member_decl.repeated())
+                .delimited_by(
+                    just(Token::Keyword("interface")),
+                    just(Token::Keyword("endinterface")),
+                ),
+        )
+        .then(
+            just(Token::Punct(":"))
+                .ignore_then(parser_match_type_ide())
+                .or_not(),
+        )
+        .map_with_span(|((attrs, (typedef, members)), type_ident), span| {
+            (
+                AstInterfaceDecl {
+                    attrs,
+                    typedef,
+                    members,
+                    type_ident,
+                },
+                span,
+            )
+        })
+}
+
 #[test]
 fn main() {
     // let filename = "src/bsv_parser/test copy.bsv";
@@ -1078,7 +1191,8 @@ fn main() {
     println!("{:?}", tokens);
     println!("{:?}", parse_errs);
     let len = src.chars().count();
-    let (ast, parse_errs) = parser_attribute_instances()
+    let (ast, parse_errs) = parser_interface_decl()
+        // .recover_with(skip_then_retry_until([]))
         .repeated()
         .collect::<Vec<_>>()
         .parse_recovery_verbose(Stream::from_iter(len..len + 1, tokens.into_iter()));

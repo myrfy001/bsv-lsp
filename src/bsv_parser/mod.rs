@@ -518,7 +518,12 @@ pub struct AstTypedefEnum {
 pub type Spanned<T> = (T, Span);
 
 fn parser_match_type_ide() -> impl Parser<Token, Spanned<AstTypeIde>, Error = Simple<Token>> {
-    select! {Token::Identifier(s) => s}.map_with_span(|ident, span| (AstTypeIde { ident }, span))
+    select! {
+        Token::Identifier(s) => s,
+        Token::Keyword("Action")  => "Action".to_string(),
+        Token::Keyword("ActionValue")  => "ActionValue".to_string(),
+    }
+    .map_with_span(|ident, span| (AstTypeIde { ident }, span))
 }
 
 fn parser_match_typeclass_ide(
@@ -557,6 +562,7 @@ fn parser_type() -> impl Parser<Token, Spanned<AstType>, Error = Simple<Token>> 
                     type_
                         .clone()
                         .separated_by(just(Token::Punct(",")))
+                        .at_least(1)
                         .delimited_by(just(Token::Punct("(")), just(Token::Punct(")"))),
                 )
                 .or_not(),
@@ -588,6 +594,7 @@ fn parser_type() -> impl Parser<Token, Spanned<AstType>, Error = Simple<Token>> 
             type_
                 .clone()
                 .separated_by(just(Token::Punct(",")))
+                .at_least(1)
                 .delimited_by(just(Token::Punct("(")), just(Token::Punct(")"))),
         )
         .map_with_span(|(ret_type, arg_types), span| {
@@ -626,7 +633,10 @@ fn parser_type_formals() -> impl Parser<Token, Spanned<AstTypeFormals>, Error = 
     let type_ide = parser_match_type_ide();
     let type_formal = just(Token::Keyword("numeric"))
         .or_not()
-        .then_ignore(just(Token::Keyword("type")))
+        // TODO： check the definition of the keyword type here. Should we write it as or_not()?
+        // if we remove or_not(), the subinterface parser will not work.
+        // so, does the keyword "type" must be here?
+        .then_ignore(just(Token::Keyword("type")).or_not())
         .then(type_ide)
         .map_with_span(|(numeric, ident), span| {
             (
@@ -641,6 +651,7 @@ fn parser_type_formals() -> impl Parser<Token, Spanned<AstTypeFormals>, Error = 
         .ignore_then(
             type_formal
                 .separated_by(just(Token::Punct(",")))
+                .at_least(1)
                 .delimited_by(just(Token::Punct("(")), just(Token::Punct(")"))),
         )
         .map_with_span(|formals, span| (AstTypeFormals { formals }, span));
@@ -673,6 +684,7 @@ fn parser_derives() -> impl Parser<Token, Spanned<AstDerives>, Error = Simple<To
         .ignore_then(
             typeclass_ide
                 .separated_by(just(Token::Punct(",")))
+                .at_least(1)
                 .delimited_by(just(Token::Punct("(")), just(Token::Punct(")"))),
         )
         .map_with_span(|derives, span| (AstDerives { derives }, span))
@@ -723,6 +735,7 @@ fn parser_typedef_enum() -> impl Parser<Token, Spanned<AstTypedefEnum>, Error = 
 
     let typedef_enum_elements = typedef_enum_element
         .separated_by(just(Token::Punct(",")))
+        .at_least(1)
         .map_with_span(|elements, span| (AstTypedefEnumElements { elements }, span));
 
     let typedef_enum = just(Token::Keyword("typedef"))
@@ -1056,6 +1069,7 @@ fn parser_attribute_instances(
         .map_with_span(|(name, expr), span| (AstAttrSpec { name, expr }, span));
     let attribute_instance = attr_spec
         .separated_by(just(Token::Punct(",")))
+        .at_least(1)
         .delimited_by(
             just(Token::Punct("(")).then(just(Token::Op("*"))),
             just(Token::Op("*")).then(just(Token::Punct(")"))),
@@ -1070,7 +1084,7 @@ fn parser_attribute_instances(
 #[derive(Debug)]
 pub struct AstMethodProtoFormal {
     attrs: Option<Spanned<AstAttributeInstances>>,
-    typ_: Spanned<AstType>,
+    type_: Spanned<AstType>,
     ident: Spanned<AstIdent>,
 }
 
@@ -1082,7 +1096,7 @@ pub struct AstMethodProtoFormals {
 #[derive(Debug)]
 pub struct AstMethodProto {
     attrs: Option<Spanned<AstAttributeInstances>>,
-    typ_: Spanned<AstType>,
+    type_: Spanned<AstType>,
     ident: Spanned<AstIdent>,
     formals: Option<Spanned<AstMethodProtoFormals>>,
 }
@@ -1091,6 +1105,7 @@ pub struct AstMethodProto {
 pub struct AstSubinterfaceDecl {
     attrs: Option<Spanned<AstAttributeInstances>>,
     typedef: Spanned<AstTypeDefType>,
+    ident: Spanned<AstIdent>,
 }
 
 #[derive(Debug)]
@@ -1112,12 +1127,22 @@ fn parser_interface_decl() -> impl Parser<Token, Spanned<AstInterfaceDecl>, Erro
         .or_not()
         .then(parser_type())
         .then(parser_match_identifier())
-        .map_with_span(|((attrs, typ_), ident), span| {
-            (AstMethodProtoFormal { attrs, typ_, ident }, span)
+        .map_with_span(|((attrs, type_), ident), span| {
+            (
+                AstMethodProtoFormal {
+                    attrs,
+                    type_,
+                    ident,
+                },
+                span,
+            )
         });
+
     let method_proto_formals = method_proto_formal
         .separated_by(just(Token::Punct(",")))
+        .at_least(1)
         .map_with_span(|formals, span| (AstMethodProtoFormals { formals }, span));
+
     let method_proto = parser_attribute_instances()
         .or_not()
         .then_ignore(just(Token::Keyword("method")))
@@ -1126,28 +1151,39 @@ fn parser_interface_decl() -> impl Parser<Token, Spanned<AstInterfaceDecl>, Erro
         .then(
             method_proto_formals
                 .or_not()
-                .delimited_by(just(Token::Punct("(")), just(Token::Punct(")"))),
+                .delimited_by(just(Token::Punct("(")), just(Token::Punct(")")))
+                .or_not(),
         )
         .then_ignore(just(Token::Punct(";")))
-        .map_with_span(|(((attrs, typ_), ident), formals), span| {
+        .map_with_span(|(((attrs, type_), ident), formals), span| {
             AstInterfaceMemberDecl::Method((
                 AstMethodProto {
                     attrs,
-                    typ_,
+                    type_,
                     ident,
-                    formals,
+                    formals: formals.unwrap_or_default(),
                 },
                 span,
             ))
         });
+
     let subinterface_decl = parser_attribute_instances()
         .or_not()
         .then_ignore(just(Token::Keyword("interface")))
         .then(parser_typedef_type())
+        .then(parser_match_identifier())
         .then_ignore(just(Token::Punct(";")))
-        .map_with_span(|(attrs, typedef), span| {
-            AstInterfaceMemberDecl::SubInterface((AstSubinterfaceDecl { attrs, typedef }, span))
+        .map_with_span(|((attrs, typedef), ident), span| {
+            AstInterfaceMemberDecl::SubInterface((
+                AstSubinterfaceDecl {
+                    attrs,
+                    typedef,
+                    ident,
+                },
+                span,
+            ))
         });
+
     let interface_member_decl = method_proto
         .or(subinterface_decl)
         .map_with_span(|i, span| (i, span));
@@ -1191,8 +1227,16 @@ fn main() {
     println!("{:?}", tokens);
     println!("{:?}", parse_errs);
     let len = src.chars().count();
+
+    // let ret = parser_interface_decl()
+    //     // .recover_with(skip_then_retry_until([]))
+    //     .repeated()
+    //     .collect::<Vec<_>>()
+    //     .parse(Stream::from_iter(len..len + 1, tokens.into_iter()));
+    // println!("{:#?}", ret);
+
     let (ast, parse_errs) = parser_interface_decl()
-        // .recover_with(skip_then_retry_until([]))
+        .recover_with(skip_then_retry_until([]))
         .repeated()
         .collect::<Vec<_>>()
         .parse_recovery_verbose(Stream::from_iter(len..len + 1, tokens.into_iter()));

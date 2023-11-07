@@ -471,6 +471,15 @@ pub struct AstIntLiteral {
 }
 
 #[derive(Debug)]
+pub struct AstRealLiteral {
+    real_lit: String,
+}
+
+#[derive(Debug)]
+pub struct AstStringLiteral {
+    str_lit: String,
+}
+#[derive(Debug)]
 pub struct AstDerives {
     derives: Vec<Spanned<AstTypeClassIde>>,
 }
@@ -987,6 +996,77 @@ fn parser_typedef() -> impl Parser<Token, Spanned<AstTypedef>, Error = Simple<To
     t1.or(t2.or(t3).or(t4))
 }
 
+#[derive(Debug)]
+pub enum AstExpression {
+    Cond,
+    Op,
+    ExprPrimary(Spanned<AstExprPrimary>),
+}
+
+#[derive(Debug)]
+pub enum AstExprPrimary {
+    Ident(Spanned<AstIdent>),
+    IntLiteral(Spanned<AstIntLiteral>),
+    RealLiteral(Spanned<AstRealLiteral>),
+    StringLiteral(Spanned<AstStringLiteral>),
+    Expr(Box<Spanned<AstExpression>>),
+    ValueOf(Spanned<AstType>),
+    DontCare(Spanned<()>),
+}
+
+fn parser_expr() -> impl Parser<Token, Spanned<AstExpression>, Error = Simple<Token>> {
+    let mut expression = Recursive::<Token, Spanned<AstExpression>, Simple<Token>>::declare();
+    parser_expr_primary(expression).map_with_span(|e, span| (AstExpression::ExprPrimary(e), span))
+}
+
+fn parser_expr_primary<'a>(
+    expression: Recursive<'a, Token, Spanned<AstExpression>, Simple<Token>>,
+) -> impl Parser<Token, Spanned<AstExprPrimary>, Error = Simple<Token>> + 'a {
+    choice((parser_expr_pri_valueof(),))
+}
+
+fn parser_expr_pri_valueof<'a>(
+) -> impl Parser<Token, Spanned<AstExprPrimary>, Error = Simple<Token>> + 'a {
+    just(Token::Keyword("valueof"))
+        .or(just(Token::Keyword("valueOf")))
+        .ignore_then(parser_type().delimited_by(just(Token::Punct("(")), just(Token::Punct(")"))))
+        .map_with_span(|typ, span| (AstExprPrimary::ValueOf(typ), span))
+}
+
+#[derive(Debug)]
+pub struct AstAttributeInstances {
+    insts: Vec<Spanned<AstAttributeInstance>>,
+}
+
+#[derive(Debug)]
+pub struct AstAttributeInstance {
+    attrs: Vec<Spanned<AstAttrSpec>>,
+}
+
+#[derive(Debug)]
+pub struct AstAttrSpec {
+    name: Spanned<AstIdent>,
+    expr: Option<Spanned<AstExpression>>,
+}
+
+fn parser_attribute_instances(
+) -> impl Parser<Token, Spanned<AstAttributeInstances>, Error = Simple<Token>> {
+    let attr_spec = parser_match_identifier()
+        .then(just(Token::Punct("=")).ignore_then(parser_expr()).or_not())
+        .map_with_span(|(name, expr), span| (AstAttrSpec { name, expr }, span));
+    let attribute_instance = attr_spec
+        .separated_by(just(Token::Punct(",")))
+        .delimited_by(
+            just(Token::Punct("(")).then(just(Token::Op("*"))),
+            just(Token::Op("*")).then(just(Token::Punct(")"))),
+        )
+        .map_with_span(|attrs, span| (AstAttributeInstance { attrs }, span));
+    attribute_instance
+        .repeated()
+        .at_least(1)
+        .map_with_span(|insts, span| (AstAttributeInstances { insts }, span))
+}
+
 #[test]
 fn main() {
     // let filename = "src/bsv_parser/test copy.bsv";
@@ -998,7 +1078,7 @@ fn main() {
     println!("{:?}", tokens);
     println!("{:?}", parse_errs);
     let len = src.chars().count();
-    let (ast, parse_errs) = parser_typedef()
+    let (ast, parse_errs) = parser_attribute_instances()
         .repeated()
         .collect::<Vec<_>>()
         .parse_recovery_verbose(Stream::from_iter(len..len + 1, tokens.into_iter()));

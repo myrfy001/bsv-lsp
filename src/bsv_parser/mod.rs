@@ -1035,7 +1035,10 @@ fn parser_expr() -> impl Parser<Token, Spanned<AstExpression>, Error = Simple<To
 fn parser_expr_primary<'a>(
     expression: Recursive<'a, Token, Spanned<AstExpression>, Simple<Token>>,
 ) -> impl Parser<Token, Spanned<AstExprPrimary>, Error = Simple<Token>> + 'a {
-    choice((parser_expr_pri_valueof(),))
+    choice((
+        parser_match_identifier().map_with_span(|e, span| (AstExprPrimary::Ident(e), span)),
+        parser_expr_pri_valueof(),
+    ))
 }
 
 fn parser_expr_pri_valueof<'a>(
@@ -1216,6 +1219,74 @@ fn parser_interface_decl() -> impl Parser<Token, Spanned<AstInterfaceDecl>, Erro
         })
 }
 
+#[derive(Debug)]
+pub enum AstModuleActualParamArg {
+    Expr(Spanned<AstExpression>),
+    ClockedByExpr(Spanned<AstExpression>),
+    ResetByExpr(Spanned<AstExpression>),
+}
+
+#[derive(Debug)]
+pub struct AstModuleApp {
+    ident: Spanned<AstIdent>,
+    param_args: Vec<Spanned<AstModuleActualParamArg>>,
+}
+
+#[derive(Debug)]
+pub struct AstModuleInst {
+    attrs: Option<Spanned<AstAttributeInstances>>,
+    type_: Spanned<AstType>,
+    ident: Spanned<AstIdent>,
+    module_app: Spanned<AstModuleApp>,
+}
+
+fn parser_module_inst() -> impl Parser<Token, Spanned<AstModuleInst>, Error = Simple<Token>> {
+    let t1 = parser_expr().map_with_span(|e, span| (AstModuleActualParamArg::Expr(e), span));
+    let t2 = just(Token::Keyword("clocked_by"))
+        .ignore_then(parser_expr())
+        .map_with_span(|e, span| (AstModuleActualParamArg::ClockedByExpr(e), span));
+    let t3 = just(Token::Keyword("reset_by"))
+        .ignore_then(parser_expr())
+        .map_with_span(|e, span| (AstModuleActualParamArg::ClockedByExpr(e), span));
+    let module_actual_param_arg = t1.or(t2).or(t3);
+    let module_app = parser_match_identifier()
+        .then(
+            module_actual_param_arg
+                .separated_by(just(Token::Punct(",")))
+                .at_least(1)
+                .or_not()
+                .delimited_by(just(Token::Punct("(")), just(Token::Punct(")")))
+                .or_not(),
+        )
+        .map_with_span(|(ident, param_args), span| {
+            (
+                AstModuleApp {
+                    ident,
+                    param_args: param_args.unwrap_or_default().unwrap_or_default(),
+                },
+                span,
+            )
+        });
+    parser_attribute_instances()
+        .or_not()
+        .then(parser_type())
+        .then(parser_match_identifier())
+        .then_ignore(just(Token::Op("<")).then(just(Token::Op("-"))))
+        .then(module_app)
+        .then_ignore(just(Token::Punct(";")))
+        .map_with_span(|(((attrs, type_), ident), module_app), span| {
+            (
+                AstModuleInst {
+                    attrs,
+                    type_,
+                    ident,
+                    module_app,
+                },
+                span,
+            )
+        })
+}
+
 #[test]
 fn main() {
     // let filename = "src/bsv_parser/test copy.bsv";
@@ -1235,7 +1306,7 @@ fn main() {
     //     .parse(Stream::from_iter(len..len + 1, tokens.into_iter()));
     // println!("{:#?}", ret);
 
-    let (ast, parse_errs) = parser_interface_decl()
+    let (ast, parse_errs) = parser_module_inst()
         .recover_with(skip_then_retry_until([]))
         .repeated()
         .collect::<Vec<_>>()

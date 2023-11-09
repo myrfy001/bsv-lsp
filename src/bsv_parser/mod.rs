@@ -1287,6 +1287,137 @@ fn parser_module_inst() -> impl Parser<Token, Spanned<AstModuleInst>, Error = Si
         })
 }
 
+#[derive(Debug)]
+pub struct AstReturnStmt {
+    expr: Spanned<AstExpression>,
+}
+fn parser_return_stmt() -> impl Parser<Token, Spanned<AstReturnStmt>, Error = Simple<Token>> {
+    just(Token::Keyword("return"))
+        .ignore_then(parser_expr())
+        .then_ignore(just(Token::Punct(";")))
+        .map_with_span(|expr, span| (AstReturnStmt { expr }, span))
+}
+
+pub struct AstFunctionBodyBeginEndStmt {}
+pub enum AstBeginEndStmtInner {
+    FunctionBody(AstFunctionBodyBeginEndStmt),
+}
+pub struct AstBeginEndStmt {
+    ident1: Option<Spanned<AstIdent>>,
+    stmt: Spanned<AstBeginEndStmtInner>,
+    ident2: Option<Spanned<AstIdent>>,
+}
+
+fn parser_function_body_begin_end_stmt(
+    inner_parser: impl Parser<Token, Spanned<AstBeginEndStmtInner>, Error = Simple<Token>>,
+) -> impl Parser<Token, Spanned<AstBeginEndStmt>, Error = Simple<Token>> {
+    just(Token::Keyword("begin"))
+        .ignore_then(just(Token::Punct(":")).ignore_then(parser_match_identifier().or_not()))
+        .then(inner_parser.delimited_by(just(Token::Punct("(")), just(Token::Punct(")"))))
+        .then_ignore(just(Token::Keyword("end")))
+        .then(just(Token::Punct(":")).ignore_then(parser_match_identifier().or_not()))
+        .map_with_span(|((ident1, stmt), ident2), span| {
+            (
+                AstBeginEndStmt {
+                    ident1,
+                    stmt,
+                    ident2,
+                },
+                span,
+            )
+        })
+}
+
+// fn parser_function_body_stmt(
+
+// ) -> impl Parser<Token, Spanned<AstBeginEndStmt>, Error = Simple<Token>> {}
+
+#[derive(Debug)]
+pub struct AstFunctionFormal {
+    type_: Spanned<AstType>,
+    ident: Spanned<AstIdent>,
+}
+
+#[derive(Debug)]
+pub struct AstFunctionFormals {
+    formals: Vec<Spanned<AstFunctionFormal>>,
+}
+
+#[derive(Debug)]
+pub struct AstFunctionProto {
+    type_: Spanned<AstType>,
+    ident: Spanned<AstIdent>,
+    formals: Option<Spanned<AstFunctionFormals>>,
+    provisos: Option<Spanned<AstProvisos>>,
+}
+
+fn parser_function_def() -> impl Parser<Token, Spanned<AstBeginEndStmt>, Error = Simple<Token>> {
+    let function_formal = parser_type()
+        .then(parser_match_identifier())
+        .map_with_span(|(type_, ident), span| (AstFunctionFormal { type_, ident }, span));
+    let function_formals = function_formal
+        .separated_by(just(Token::Punct(",")))
+        .at_least(1)
+        .map_with_span(|formals, span| (AstFunctionFormals { formals }, span));
+    let function_proto = just(Token::Keyword("function"))
+        .ignore_then(parser_type())
+        .then(parser_match_identifier())
+        .then(
+            function_formals
+                .or_not()
+                .delimited_by(just(Token::Punct("(")), just(Token::Punct(")"))),
+        )
+        .then(parser_provisos().or_not())
+        .map_with_span(|(((type_, ident), formals), provisos), span| {
+            (
+                AstFunctionProto {
+                    type_,
+                    ident,
+                    formals,
+                    provisos,
+                },
+                span,
+            )
+        });
+    parser_attribute_instances()
+        .or_not()
+        .then(function_proto)
+        .then(parser_function_body())
+        .then_ignore(just(Token::Keyword("endfunction")))
+        .then(just(Token::Punct(":")).ignore_then(parser_match_identifier()))
+}
+
+#[derive(Debug)]
+pub struct AstProviso {
+    ident: Spanned<AstIdent>,
+    types: Vec<Spanned<AstType>>,
+}
+
+#[derive(Debug)]
+pub struct AstProvisos {
+    provisos: Vec<Spanned<AstProviso>>,
+}
+
+fn parser_provisos() -> impl Parser<Token, Spanned<AstProvisos>, Error = Simple<Token>> {
+    let proviso = parser_match_identifier()
+        .then_ignore(just(Token::Punct("#")))
+        .then(
+            parser_type()
+                .separated_by(just(Token::Punct(",")))
+                .at_least(1)
+                .delimited_by(just(Token::Punct("(")), just(Token::Punct(")"))),
+        )
+        .map_with_span(|(ident, types), span| (AstProviso { ident, types }, span));
+    just(Token::Keyword("provisos"))
+        .ignore_then(
+            proviso
+                .separated_by(just(Token::Punct(",")))
+                .at_least(1)
+                .delimited_by(just(Token::Punct("(")), just(Token::Punct(")"))),
+        )
+        .map_with_span(|provisos, span| (AstProvisos { provisos }, span))
+}
+
 #[test]
 fn main() {
     // let filename = "src/bsv_parser/test copy.bsv";
@@ -1306,7 +1437,7 @@ fn main() {
     //     .parse(Stream::from_iter(len..len + 1, tokens.into_iter()));
     // println!("{:#?}", ret);
 
-    let (ast, parse_errs) = parser_module_inst()
+    let (ast, parse_errs) = parser_provisos()
         .recover_with(skip_then_retry_until([]))
         .repeated()
         .collect::<Vec<_>>()
